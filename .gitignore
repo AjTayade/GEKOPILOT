@@ -3,3 +3,6 @@ dist
 node_modules
 .vscode-test/
 *.vsix
+# Ignore compiled JS/map files within src, they belong in dist/out
+src/**/*.js
+src/**/*.js.map
