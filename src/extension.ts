@@ -1,10 +1,13 @@
 // src/extension.ts
 
 import * as vscode from 'vscode';
+import * as path from 'path';
+import * as fs from 'fs';
 import { Orchestrator } from './orchestrator';
-import { showSetupWizard } from './ui/setupCommands'; // Import the new UI function
+import { showSetupWizard } from './ui/setupCommands';
 
-// Keep existing activate function structure
+const DEVSETUP_FILENAME = '.devsetup.json';
+
 export function activate(context: vscode.ExtensionContext) {
     const output = vscode.window.createOutputChannel('Dev Orchestrator');
     const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
@@ -12,111 +15,77 @@ export function activate(context: vscode.ExtensionContext) {
     statusBar.hide();
 
     const orchestrator = new Orchestrator(output, statusBar);
+    orchestrator.log('GeckoPilot extension activating...'); // Log activation start
 
-    // --- NEW COMMAND REGISTRATION ---
+    // --- REGISTER COMMANDS ---
+
+    // 1. Main Wizard Command (Primary Entry Point)
     const disposableWizard = vscode.commands.registerCommand('geckopilot.startSetupWizard', async () => {
-        // Call the UI function from setupCommands.ts
-        await showSetupWizard(orchestrator);
-    });
-    // --- END NEW COMMAND REGISTRATION ---
-
-
-    // Keep existing commands
-    const disposableSetup = vscode.commands.registerCommand('extension.setupProject', async () => {
+        orchestrator.log('Command "geckopilot.startSetupWizard" triggered.');
+        // Ensure a workspace folder is open before showing the wizard
         const folder = await pickWorkspaceFolder();
         if (!folder) {
+             vscode.window.showInformationMessage('Please open a workspace folder before starting the setup wizard.');
             return;
         }
-        // This command now implicitly uses the existing .devsetup.json
+        await showSetupWizard(orchestrator); // Show the UI options
+    });
+
+    // 2. Command to run setup directly from .devsetup.json
+    const disposableRunFromFile = vscode.commands.registerCommand('geckopilot.runFromFile', async () => {
+        orchestrator.log('Command "geckopilot.runFromFile" triggered.');
+        const folder = await pickWorkspaceFolder();
+        if (!folder) {
+             vscode.window.showInformationMessage('Please open a workspace folder containing a .devsetup.json file.');
+            return;
+        }
         await runFromExistingFileCommand(orchestrator, folder);
     });
 
-    const disposableCheck = vscode.commands.registerCommand('extension.checkRequirements', async () => {
+    // 3. Command to check requirements directly from .devsetup.json
+    const disposableCheckFromFile = vscode.commands.registerCommand('geckopilot.checkFromFile', async () => {
+        orchestrator.log('Command "geckopilot.checkFromFile" triggered.');
         const folder = await pickWorkspaceFolder();
         if (!folder) {
+             vscode.window.showInformationMessage('Please open a workspace folder containing a .devsetup.json file.');
             return;
         }
 
-        await progressQuick('Checking requirements', async (progress) => {
+        const devSetupPath = path.join(folder.uri.fsPath, DEVSETUP_FILENAME);
+        if (!fs.existsSync(devSetupPath)) {
+            vscode.window.showErrorMessage(`${DEVSETUP_FILENAME} not found in the selected workspace folder '${folder.name}'. Cannot check requirements.`);
+            return;
+        }
+
+
+        await progressQuick('Checking requirements from file', async (progress) => {
+            orchestrator.log("Initiating requirements check via command...");
             const res = await orchestrator.runCheckRequirements(folder.uri.fsPath);
-            vscode.window.showInformationMessage(`Requirements: ${res.ok ? 'OK' : 'NOT OK'} — ${res.details || ''}`);
+            orchestrator.log(`Requirements check result: ok=${res.ok}, details=${res.details || 'N/A'}`);
+            // Show result regardless of ok status, details provide info
+            vscode.window.showInformationMessage(`Requirements Check: ${res.ok ? 'OK' : 'NOT OK'} — ${res.details || 'No details available.'}`);
         });
     });
 
-    // Add the new command disposable to subscriptions
-    context.subscriptions.push(disposableWizard, disposableSetup, disposableCheck, output, statusBar);
+    // Add command disposables to subscriptions
+    context.subscriptions.push(
+        disposableWizard,
+        disposableRunFromFile,
+        disposableCheckFromFile,
+        output, // Dispose output channel on deactivation
+        statusBar // Dispose status bar item on deactivation
+    );
 
-    // --- MODIFICATION TO AUTO-DETECTION ---
-    // Modify the auto-detection to potentially offer the wizard or just run from file
-    (async () => {
-        try {
-            if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
-                // output.appendLine('No workspace open on activation.'); // Keep logging minimal
-                return;
-            }
+    // --- REMOVED ---
+    // - Auto-detection logic based on file existence on activation.
+    // - File watcher logic that prompted user on file changes.
 
-            const devsetupFiles = await vscode.workspace.findFiles('**/.devsetup.json', '**/node_modules/**', 1);
-
-            if (devsetupFiles.length > 0) {
-                const folder = await pickWorkspaceFolder();
-                if (!folder) {
-                    return;
-                }
-
-                // Offer to run from existing file OR start the wizard to modify/choose preset
-                const answer = await vscode.window.showInformationMessage(
-                    `.devsetup.json detected in workspace.`,
-                    { modal: false }, // Make it non-modal
-                    { title: `Run Setup from ${DEVSETUP_FILENAME}` },
-                    { title: "Configure with Wizard" },
-                    { title: "Later", isCloseAffordance: true }
-                );
-
-                if (answer?.title === `Run Setup from ${DEVSETUP_FILENAME}`) {
-                     await runFromExistingFileCommand(orchestrator, folder);
-                } else if (answer?.title === "Configure with Wizard") {
-                     await showSetupWizard(orchestrator); // Start the wizard instead
-                } else {
-                    output.appendLine('User deferred auto-setup.');
-                }
-            } else {
-                // No file found - maybe prompt user to start wizard? Optional.
-                // output.appendLine('No .devsetup.json found at activation.');
-            }
-        } catch (e: any) {
-            output.appendLine(`Activation detection error: ${e.message}`);
-        }
-    })();
-    // --- END MODIFICATION ---
-
-
-    // --- File watcher potentially needs adjustment ---
-    const watcher = vscode.workspace.createFileSystemWatcher('**/.devsetup.json');
-
-    watcher.onDidCreate(async (uri) => {
-        // Instead of directly running, maybe just notify or offer the wizard?
-        output.appendLine(`.devsetup.json created at ${uri.fsPath}`);
-        const folder = vscode.workspace.getWorkspaceFolder(uri);
-        if (!folder) return;
-
-        const run = await vscode.window.showInformationMessage(`.devsetup.json was added/modified. Run setup now?`, 'Run Setup', 'Configure with Wizard', 'No');
-        if (run === 'Run Setup') {
-             await runFromExistingFileCommand(orchestrator, folder);
-        } else if (run === 'Configure with Wizard') {
-             await showSetupWizard(orchestrator);
-        }
-    });
-
-     // Optional: React to changes? Could trigger re-run prompt.
-     // watcher.onDidChange(async (uri) => { ... });
-
-    context.subscriptions.push(watcher);
-    output.appendLine('Dev Orchestrator activated.');
+    output.appendLine('GeckoPilot extension activated successfully. Run "GeckoPilot: Configure Environment Setup Wizard" to start.');
 }
 
 
-// --- Helper Functions (Moved or ensure exported) ---
-// Make sure these are accessible by setupCommands.ts, either by exporting or moving
+// --- Helper Functions ---
+// (These remain largely the same but ensure they are exported if needed elsewhere, like ui/setupCommands.ts)
 
 export async function pickWorkspaceFolder(): Promise<vscode.WorkspaceFolder | undefined> {
     const wfs = vscode.workspace.workspaceFolders;
@@ -127,67 +96,87 @@ export async function pickWorkspaceFolder(): Promise<vscode.WorkspaceFolder | un
     if (wfs.length === 1) {
         return wfs[0];
     }
-
-    // If multiple, prompt user
-    const choice = await vscode.window.showWorkspaceFolderPick({ placeHolder: 'Select workspace folder for orchestration' });
+    const choice = await vscode.window.showWorkspaceFolderPick({ placeHolder: 'Select workspace folder for GeckoPilot setup' });
     return choice;
 }
 
-export async function runWithProgress(title: string, cb: (token: vscode.CancellationToken, progress: vscode.Progress<{ message?: string; increment?: number }>) => Promise<any>) {
-    return vscode.window.withProgress({
+export async function runWithProgress(title: string, cb: (token: vscode.CancellationToken, progress: vscode.Progress<{ message?: string; increment?: number }>) => Promise<any>): Promise<any> {
+    let result: any;
+    await vscode.window.withProgress({
         location: vscode.ProgressLocation.Notification,
-        title,
+        title: `GeckoPilot: ${title}`, // Add prefix for clarity
         cancellable: true
     }, async (progress, token) => {
+        token.onCancellationRequested(() => {
+             console.log("User cancelled the GeckoPilot operation");
+             // Maybe log to orchestrator? orchestrator.log('Operation cancelled by user.');
+        });
+
         try {
-            // Check for cancellation at the start
             if (token.isCancellationRequested) {
                  vscode.window.showInformationMessage("Operation cancelled.");
-                 return { success: false, message: 'Operation cancelled.'}; // Return status
+                 result = { success: false, message: 'Operation cancelled.'};
+                 return;
             }
-            return await cb(token, progress);
+            result = await cb(token, progress);
         } catch (e: any) {
-             // Orchestrator or Executor should handle showing specific errors.
-             // Avoid double-showing the error here unless it's a progress-wrapper specific issue.
-             console.error(`${title} failed: ${e.message}`);
-             // vscode.window.showErrorMessage(`${title} failed: ${e.message}`);
-             // Re-throw so the caller knows it failed
+             console.error(`GeckoPilot Progress Task "${title}" failed: ${e.message}`);
+             // Re-throw so the caller (.catch in command handlers) knows it failed
+             // Specific error messages should be shown by Orchestrator/Executor
              throw e;
         }
     });
+     return result;
 }
 
-// Helper for short quick progress notifications
 export async function progressQuick(title: string, cb: (progress: vscode.Progress<{ message?: string; increment?: number }>) => Promise<any>) {
     return vscode.window.withProgress({
         location: vscode.ProgressLocation.Notification,
-        title,
-        cancellable: false // Typically non-cancellable for quick checks
+        title: `GeckoPilot: ${title}`, // Add prefix
+        cancellable: false
     }, async (progress) => {
         try {
             return await cb(progress);
         } catch(e: any){
-             vscode.window.showErrorMessage(`${title} failed: ${e.message}`);
+             vscode.window.showErrorMessage(`GeckoPilot task "${title}" failed: ${e.message}`);
              throw e;
         }
     });
 }
 
-// Helper function to encapsulate running from existing file
-async function runFromExistingFileCommand(orchestrator: Orchestrator, folder: vscode.WorkspaceFolder){
+// Helper to run the setup process based on the file
+// Needs Orchestrator passed in, must be exported if used by ui/setupCommands.ts
+export async function runFromExistingFileCommand(orchestrator: Orchestrator, folder: vscode.WorkspaceFolder){
      const devSetupPath = path.join(folder.uri.fsPath, DEVSETUP_FILENAME);
     if (!fs.existsSync(devSetupPath)) {
-        vscode.window.showErrorMessage(`${DEVSETUP_FILENAME} not found in the selected workspace folder.`);
-        return;
+        vscode.window.showErrorMessage(`${DEVSETUP_FILENAME} not found in the selected workspace folder '${folder.name}'. Cannot run setup.`);
+        return; // Stop execution
     }
-     await runWithProgress('Running project setup from file', async (token, progress) => {
-        progress.report({ message: `Reading ${DEVSETUP_FILENAME} and starting setup...` });
-        await orchestrator.runFullValidationAndSetup(folder.uri.fsPath, token); // Orchestrator reads the file
-    });
+     try {
+         // Use runWithProgress for consistent UI and cancellation handling
+         const result = await runWithProgress(`Running setup from ${DEVSETUP_FILENAME}`, async (token, progress) => {
+            progress.report({ message: `Reading ${DEVSETUP_FILENAME} and starting setup...` });
+            // Orchestrator reads the file internally
+           return await orchestrator.runFullValidationAndSetup(folder.uri.fsPath, token); // return the result
+        });
+
+        // Optionally handle success/failure result here if needed,
+        // though orchestrator already shows messages.
+        if (result && !result.success && result.message !== 'Operation cancelled.') {
+             orchestrator.log(`Setup from file command finished with failure.`);
+        } else if (result && result.success) {
+             orchestrator.log(`Setup from file command finished successfully.`);
+        }
+
+     } catch (error: any) {
+         // Catch errors re-thrown by runWithProgress or orchestrator
+         orchestrator.log(`runFromExistingFileCommand caught error: ${error.message || error}`);
+         // No need to show another message here, should be handled upstream
+     }
 }
 
 
 export function deactivate() {
-    // cleanup if needed
-    console.log('Dev Orchestrator deactivated.');
+    console.log('GeckoPilot extension deactivated.');
+    // Cleanup resources if any were created globally
 }

@@ -1,67 +1,66 @@
 {
   "name": "geckopilot",
   "displayName": "GeckoPilot",
-  "description": "dependencyinstaller",
+  "description": "Automated Development Environment Setup",
   "version": "0.0.1",
   "engines": {
-    "vscode": "^1.104.0"
+    "vscode": "^1.80.0" 
   },
   "categories": [
     "Other"
   ],
   "activationEvents": [
-    "onCommand:extension.setupProject",
-    "onCommand:extension.checkRequirements",
-    "workspaceContains:.devsetup.json",
-    "onStartupFinished"
+    "onCommand:geckopilot.startSetupWizard",
+    "onCommand:geckopilot.runFromFile",
+    "onCommand:geckopilot.checkFromFile"
   ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "extension.setupProject",
-        "title": "Dev: Setup Project (run setupRunner)"
+        "command": "geckopilot.startSetupWizard",
+        "title": "GeckoPilot: Configure Environment Setup Wizard"
       },
       {
-        "command": "extension.checkRequirements",
-        "title": "Dev: Check Requirements"
+        "command": "geckopilot.runFromFile",
+        "title": "GeckoPilot: Run Setup from .devsetup.json"
+      },
+      {
+        "command": "geckopilot.checkFromFile",
+        "title": "GeckoPilot: Check Requirements from .devsetup.json"
       }
     ]
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
+    "vscode:prepublish": "npm run package",
+    "compile": "tsc -p ./ --outDir dist", 
+    "watch:compile": "tsc -p ./ --outDir dist --watch",
     "watch:esbuild": "node esbuild.js --watch",
-    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+    "watch": "npm-run-all --parallel watch:compile watch:esbuild",
     "package": "npm run check-types && npm run lint && node esbuild.js --production",
-    "compile-tests": "tsc -p . --outDir out",
-    "watch-tests": "tsc -p . -w --outDir out",
-    "pretest": "npm run compile-tests && npm run compile && npm run lint",
     "check-types": "tsc --noEmit",
-    "lint": "eslint src",
-    "test": "node ./out/test/runTest.js"
+    "lint": "eslint src", 
+    "test": "vscode-test" 
   },
   "devDependencies": {
-    "@types/mocha": "^10.0.10",
-    "@types/node": "^22.18.8",
-    "@types/semver": "^7.7.1",
-    "@types/vscode": "^1.104.0",
-    "@typescript-eslint/eslint-plugin": "^8.42.0",
-    "@typescript-eslint/parser": "^8.42.0",
-    "@vscode/test-cli": "^0.0.11",
-    "@vscode/test-electron": "^2.5.2",
-    "esbuild": "^0.25.9",
-    "eslint": "^9.34.0",
+    "@types/mocha": "^10.0.6", 
+    "@types/node": "^20.11.24", 
+    "@types/semver": "^7.5.8",
+    "@types/vscode": "^1.80.0", 
+    "@typescript-eslint/eslint-plugin": "^7.1.0", 
+    "@typescript-eslint/parser": "^7.1.0", 
+    "@vscode/test-cli": "^0.0.6", 
+    "@vscode/test-electron": "^2.3.9", 
+    "esbuild": "^0.20.1", 
+    "eslint": "^8.57.0", 
     "npm-run-all": "^4.1.5",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.9.3"
+    "typescript": "^5.3.3" 
   },
   "dependencies": {
-    "semver": "^7.7.2"
+    "semver": "^7.6.0" 
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs"
+  "type": "commonjs" 
 }

@@ -22,7 +22,8 @@ export class Orchestrator {
     this.statusBar = statusBar;
   }
 
-  private log(msg: string) {
+  // FIX: Make log method public
+  public log(msg: string) {
     const ts = new Date().toISOString();
     this.output.appendLine(`[${ts}] ${msg}`);
   }
@@ -40,6 +41,7 @@ export class Orchestrator {
         const devSetupContent = fs.readFileSync(devSetupPath, 'utf8');
         const parsedContent = JSON.parse(devSetupContent);
 
+        // Ensure it's the root array structure
         if (!Array.isArray(parsedContent)) {
             this.log('ERROR: .devsetup.json content is not a valid array.');
             vscode.window.showErrorMessage('Failed to parse .devsetup.json: Expected an array.');
@@ -48,9 +50,10 @@ export class Orchestrator {
         // Basic validation of array items
         if (parsedContent.some(item => typeof item !== 'object' || !item.id || !item.name)) {
              this.log('ERROR: .devsetup.json contains invalid dependency objects (missing id or name).');
-              vscode.window.showErrorMessage('Failed to parse .devsetup.json: Invalid dependency objects found.');
+              vscode.window.showErrorMessage('Failed to parse .devsetup.json: Invalid dependency objects found (must have id and name).');
              return null;
         }
+        this.log(`Successfully parsed ${parsedContent.length} dependencies from .devsetup.json`);
         return parsedContent as DependencyRequirement[];
     } catch (e: any) {
         this.log(`ERROR: Failed to read or parse .devsetup.json: ${e.message}`);
@@ -68,6 +71,7 @@ export class Orchestrator {
     const requirements = this.getDevSetupConfig(workspaceRoot);
 
     if (requirements === null) {
+       // Config reading failed, error already shown
        return { ok: false, details: 'Could not read or parse .devsetup.json.' };
     }
     
@@ -84,12 +88,13 @@ export class Orchestrator {
             missing.push(result.dependency.name);
         } else if (result.dependency.requiredVersion && result.installedVersion) {
             // FIX: Use semver.satisfies for accurate version check
-            if (!semver.satisfies(result.installedVersion, result.dependency.requiredVersion)) {
-                incompatible.push(`${result.dependency.name} (Installed: ${result.installedVersion}, Required: ${result.dependency.requiredVersion})`);
+            // Coerce installedVersion just in case parseVersion returned raw non-semver output
+            const cleanInstalledVersion = semver.coerce(result.installedVersion)?.version || null;
+            if (!cleanInstalledVersion || !semver.satisfies(cleanInstalledVersion, result.dependency.requiredVersion)) {
+                 incompatible.push(`${result.dependency.name} (Installed: ${result.installedVersion || 'unknown'}, Required: ${result.dependency.requiredVersion})`);
             }
         }
-         // If installedVersion is null/undefined but requiredVersion exists, consider it potentially incompatible or audit failed?
-         // Current Auditor returns raw output if parsing fails, semver.satisfies handles non-semver strings gracefully (returns false)
+         // If installed but version couldn't be determined, and a version IS required
          else if (result.dependency.requiredVersion && !result.installedVersion) {
               incompatible.push(`${result.dependency.name} (Installed version could not be determined, Required: ${result.dependency.requiredVersion})`);
          }
@@ -98,9 +103,9 @@ export class Orchestrator {
 
     if (missing.length > 0 || incompatible.length > 0) {
         let details = '';
-        if (missing.length > 0) details += `Missing dependencies: ${missing.join(', ')}. `;
-        if (incompatible.length > 0) details += `Incompatible versions: ${incompatible.join(', ')}.`;
-        return { ok: false, details: details.trim(), missing };
+        if (missing.length > 0) { details += `Missing dependencies: ${missing.join(', ')}. `; }
+        if (incompatible.length > 0) { details += `Incompatible versions found: ${incompatible.join(', ')}.`; }
+        return { ok: false, details: details.trim(), missing }; // Keep missing array for potential future use
     }
 
     return { ok: true, details: 'All required dependencies are installed and compatible.' };
@@ -113,11 +118,12 @@ export class Orchestrator {
   async runFullValidationAndSetup(workspaceRoot: string, token?: vscode.CancellationToken): Promise<SetupResult> {
     this.statusBar.text = 'Dev Orchestrator: Running setup...';
     this.statusBar.show();
+    this.log(`Starting full validation and setup for workspace: ${workspaceRoot}`);
 
     try {
       const requirements = this.getDevSetupConfig(workspaceRoot);
       if (requirements === null) {
-          vscode.window.showErrorMessage('Failed to read or parse .devsetup.json. Setup cannot proceed.');
+          // Error already shown by getDevSetupConfig
           return { success: false, message: 'Invalid or missing .devsetup.json.' };
       }
       if (requirements.length === 0) {
@@ -137,7 +143,7 @@ export class Orchestrator {
 
           if (stepsToDo.length > 0) {
             this.log(`Executing plan: ${stepsToDo.length} action(s) required.`);
-            await executePlan(actionPlan, this.output); // executePlan is now async
+            await executePlan(actionPlan, this.output); // executePlan is now async and throws on failure
             this.log('Dependency action plan execution finished.');
           } else {
             this.log('All dependencies are already installed and meet requirements.');
@@ -152,7 +158,7 @@ export class Orchestrator {
         this.log(`[scaffold] ${msg}`);
       });
       if (!scaffoldResult.success) {
-        // No need to throw, just return the failure
+        // Log, show error, and return failure status
         this.log(`Scaffolding failed: ${scaffoldResult.message}`);
         vscode.window.showErrorMessage(`Scaffolding failed: ${scaffoldResult.message}`);
         return { success: false, message: `Scaffolding failed: ${scaffoldResult.message}` };
@@ -178,17 +184,23 @@ export class Orchestrator {
       return { success: true, message: 'Setup finished successfully.' };
 
     } catch (err: any) {
-        // Errors thrown by executePlan or other steps land here
+        // Catch errors thrown by executePlan or other steps
         this.log(`Full flow failed: ${err.message}`);
-        // Error message already shown by executePlan or runCheckRequirements etc. if they throw
-        // Only show a generic one if the error originated elsewhere.
-        if (!String(err.message).includes('Installation failed') && !String(err.message).includes('Reinstallation failed')) {
+        // Error message should have been shown closer to the source (e.g., Executor)
+        // Only show a generic one if the message seems uninformative
+        if (!String(err.message).includes('ailed') && !String(err.message).includes('error')) { // Basic check
             vscode.window.showErrorMessage(`Orchestration failed unexpectedly: ${err.message}`);
         }
         this.statusBar.text = 'Dev Orchestrator: Error';
         return { success: false, message: err.message };
     } finally {
-      setTimeout(() => { try { this.statusBar.hide(); } catch { /* ignore */ } }, 5000); // Show status briefly
+      // Set timeout to hide status bar after a delay
+      setTimeout(() => {
+          // Check if the status bar still exists before trying to hide it
+          if (this.statusBar) {
+              try { this.statusBar.hide(); } catch { /* ignore potential errors during disposal */ }
+          }
+      }, 5000); // Show status briefly
     }
   }
 }
