@@ -39,11 +39,33 @@ export interface CheckResult {
   missing?: string[];          // list of missing dependencies, if any
 }
 
-// Generic result for setup or scaffolding
-export interface SetupResult {
-  success: boolean;            // true if setup/scaffold succeeded
-  message?: string;            // description or error message
+// Information about a step that failed automatic execution
+export interface FailedStepInfo {
+    dependencyName: string;
+    action: "INSTALL" | "REINSTALL"; // Add UNINSTALL if needed separately
+    errorMessage: string;
 }
+
+// Result of executing the action plan
+export interface ExecutionResult {
+  totalSteps: number;
+  stepsAttempted: number; // Steps where automatic action was tried (INSTALL/REINSTALL)
+  stepsSucceeded: number; // Steps that completed successfully automatically
+  stepsSkippedSudo: number; // Steps skipped because they required manual sudo
+  stepsFailed: number; // Steps that failed during automatic execution
+  manualSudoCommands: string[]; // List of commands the user needs to run
+  failedStepsInfo: FailedStepInfo[]; // Details about failed steps
+}
+
+// Result of the entire setup process, including dependency execution, scaffold, and final setup
+export interface SetupResult {
+  success: boolean;            // true if setup/scaffold succeeded *fully automatically* AND no deps failed
+  message?: string;            // description or error message
+  partialSuccess?: boolean;    // true if some steps required manual intervention but none failed
+  manualStepsRequired?: string[]; // Commands user needed to run
+  failedSteps?: FailedStepInfo[]; // Details about failed dependency steps
+}
+
 
 // Optional interfaces if you want to strongly type module interactions later
 export interface IRequirementsChecker {

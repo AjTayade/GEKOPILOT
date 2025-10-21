@@ -3,189 +3,185 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Orchestrator } from '../orchestrator';
-import { DependencyRequirement } from '../types';
-import { getPresetStackNames, getDependenciesForStack, findDependencyDefinitionById } from '../core/stackDefinition';
-import { runWithProgress, pickWorkspaceFolder, runFromExistingFileCommand } from '../extension'; // Correct import path
+import { Orchestrator } from '../orchestrator'; //
+import { DependencyRequirement } from '../types'; //
+// Import ALL_DEPENDENCIES instead of findDependencyDefinitionById
+import { getPresetStackNames, getDependenciesForStack, ALL_DEPENDENCIES } from '../core/stackDefinition'; //
+import { pickWorkspaceFolder, runFromExistingFileCommand } from '../extension'; //
 
-// FIX: Define constant here
-const DEVSETUP_FILENAME = '.devsetup.json';
+// Define constant here
+const DEVSETUP_FILENAME = '.devsetup.json'; //
 
 // Main function to initiate the setup wizard
-export async function showSetupWizard(orchestrator: Orchestrator) {
-    const options: { label: string; description?: string; action: () => Promise<void> }[] = [
+export async function showSetupWizard(orchestrator: Orchestrator) { //
+    const options: { label: string; description?: string; action: () => Promise<void> }[] = [ //
         {
-            label: "Select a Preset Stack",
-            description: "Install dependencies for common setups (MERN, WebDev...)",
-            action: async () => { await handlePresetSelection(orchestrator); },
+            label: "Select a Preset Stack", //
+            description: "Install dependencies for common setups (MERN, WebDev...)", //
+            action: async () => { await handlePresetSelection(orchestrator); }, //
         },
         {
-            label: "Enter Custom Dependencies",
-            description: `Specify dependencies to add/update ${DEVSETUP_FILENAME}`, // FIX: Use constant
-            action: async () => { await handleCustomInput(orchestrator); },
+            label: "Select Custom Dependencies", // Changed Label
+            description: `Choose individual dependencies to add/update ${DEVSETUP_FILENAME}`, //
+            action: async () => { await handleCustomSelection(orchestrator); }, // Changed function call
         },
         {
-            label: `Run from existing ${DEVSETUP_FILENAME}`, // FIX: Use constant
-            description: "Run setup based on the current file in the workspace",
-            action: async () => {
-                 const folder = await pickWorkspaceFolder();
-                 if (folder) {
-                    await runFromExistingFileCommand(orchestrator, folder);
+            label: `Run from existing ${DEVSETUP_FILENAME}`, //
+            description: "Run setup based on the current file in the workspace", //
+            action: async () => { //
+                 const folder = await pickWorkspaceFolder(); //
+                 if (folder) { //
+                    await runFromExistingFileCommand(orchestrator, folder); //
                  }
             },
         },
     ];
 
-    const choice = await vscode.window.showQuickPick(options, {
-        placeHolder: "Choose how to configure your development environment setup",
-        title: "GeckoPilot Setup Wizard",
+    const choice = await vscode.window.showQuickPick(options, { //
+        placeHolder: "Choose how to configure your development environment setup", //
+        title: "GeckoPilot Setup Wizard", //
     });
 
-    if (choice) {
-        await choice.action();
+    if (choice) { //
+        await choice.action(); //
     }
 }
 
-// Handler for Preset Stack selection
-async function handlePresetSelection(orchestrator: Orchestrator) {
-    const stackNames = getPresetStackNames();
-    if (stackNames.length === 0) {
-        vscode.window.showInformationMessage("No preset stacks are defined.");
-        return;
+// Handler for Preset Stack selection (remains the same)
+async function handlePresetSelection(orchestrator: Orchestrator) { //
+    const stackNames = getPresetStackNames(); //
+    if (stackNames.length === 0) { //
+        vscode.window.showInformationMessage("No preset stacks are defined."); //
+        return; //
     }
-    const selectedStackName = await vscode.window.showQuickPick(stackNames, {
-        placeHolder: "Select the preset stack you want to install",
-        title: "Select Preset Stack",
+    const selectedStackName = await vscode.window.showQuickPick(stackNames, { //
+        placeHolder: "Select the preset stack you want to install", //
+        title: "Select Preset Stack", //
     });
 
-    if (!selectedStackName) { return; }
+    if (!selectedStackName) { return; } //
 
-    const dependencies = getDependenciesForStack(selectedStackName);
-    if (!dependencies) {
-        vscode.window.showErrorMessage(`Internal Error: Could not find definition for stack '${selectedStackName}'.`);
-        return;
+    const dependencies = getDependenciesForStack(selectedStackName); //
+    if (!dependencies) { //
+        vscode.window.showErrorMessage(`Internal Error: Could not find definition for stack '${selectedStackName}'.`); //
+        return; //
     }
 
-    const folder = await pickWorkspaceFolder();
-    if (!folder) { return; }
+    const folder = await pickWorkspaceFolder(); //
+    if (!folder) { return; } //
 
-    const confirmOverwrite = await vscode.window.showQuickPick(['Yes', 'No'], {
-        placeHolder: `This will overwrite ${DEVSETUP_FILENAME} in ${folder.name} with the '${selectedStackName}' preset. Continue?`, // FIX: Use constant
-        title: `Confirm Overwrite ${DEVSETUP_FILENAME}` // FIX: Use constant
+    const confirmOverwrite = await vscode.window.showQuickPick(['Yes', 'No'], { //
+        placeHolder: `This will overwrite ${DEVSETUP_FILENAME} in ${folder.name} with the '${selectedStackName}' preset. Continue?`, //
+        title: `Confirm Overwrite ${DEVSETUP_FILENAME}` //
     });
 
-    if (confirmOverwrite !== 'Yes') { return; }
+    if (confirmOverwrite !== 'Yes') { return; } //
 
-    try {
-        const filePath = path.join(folder.uri.fsPath, DEVSETUP_FILENAME); // FIX: Use constant
-        fs.writeFileSync(filePath, JSON.stringify(dependencies, null, 2), 'utf8');
-        orchestrator.log(`[UI] Overwrote ${DEVSETUP_FILENAME} with preset '${selectedStackName}'.`); // FIX: Use constant
+    try { //
+        const filePath = path.join(folder.uri.fsPath, DEVSETUP_FILENAME); //
+        fs.writeFileSync(filePath, JSON.stringify(dependencies, null, 2), 'utf8'); //
+        orchestrator.log(`[UI] Overwrote ${DEVSETUP_FILENAME} with preset '${selectedStackName}'.`); //
 
-        await runFromExistingFileCommand(orchestrator, folder);
+        await runFromExistingFileCommand(orchestrator, folder); //
 
-    } catch (error: any) {
-        orchestrator.log(`[UI] Error writing preset to ${DEVSETUP_FILENAME}: ${error.message}`); // FIX: Use constant
-        vscode.window.showErrorMessage(`Error saving preset to ${DEVSETUP_FILENAME}: ${error.message}`); // FIX: Use constant
+    } catch (error: any) { //
+        orchestrator.log(`[UI] Error writing preset to ${DEVSETUP_FILENAME}: ${error.message}`); //
+        vscode.window.showErrorMessage(`Error saving preset to ${DEVSETUP_FILENAME}: ${error.message}`); //
     }
 }
 
-// Handler for Custom Dependency input
-async function handleCustomInput(orchestrator: Orchestrator) {
+// *** NEW Handler for Custom Dependency SELECTION using Quick Pick ***
+async function handleCustomSelection(orchestrator: Orchestrator) {
     const folder = await pickWorkspaceFolder();
     if (!folder) { return; }
 
-    const input = await vscode.window.showInputBox({
-        prompt: `Enter dependency IDs separated by commas (e.g., node, git, python)`,
-        placeHolder: "node, git, python, docker",
-        title: "Custom Dependencies",
+    // Prepare QuickPick items from ALL_DEPENDENCIES
+    const availableDependencies = Object.values(ALL_DEPENDENCIES); //
+    const quickPickItems: vscode.QuickPickItem[] = availableDependencies.map(dep => ({
+        label: dep.id, // Use the ID as the primary searchable label
+        description: dep.name, // Show the friendly name as description
+        // You could add 'detail' for version requirements if desired
+        // detail: dep.requiredVersion ? `Requires: ${dep.requiredVersion}` : undefined
+    }));
+
+    // Show the multi-select Quick Pick
+    const selectedItems = await vscode.window.showQuickPick(quickPickItems, {
+        canPickMany: true, // Allow multiple selections
+        placeHolder: "Select the dependencies you want to include (type to filter)",
+        title: "Select Custom Dependencies",
+        ignoreFocusOut: true // Keep open if focus shifts slightly
     });
 
-    if (input === undefined) { return; }
-
-    const ids = input.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-    if (ids.length === 0 && input.trim() !== '') {
-        vscode.window.showWarningMessage("No valid dependency IDs entered.");
-        return;
-    }
-     if (ids.length === 0 && input.trim() === '') {
-         vscode.window.showInformationMessage("No dependencies specified.");
-         return;
-    }
-
-    const dependencies: DependencyRequirement[] = [];
-    const notFound: string[] = [];
-
-    for (const id of ids) {
-        const definition = findDependencyDefinitionById(id);
-        if (definition) {
-            dependencies.push(definition);
-        } else {
-            notFound.push(id);
-        }
-    }
-
-    if (notFound.length > 0) {
-        vscode.window.showWarningMessage(`Could not find definitions for: ${notFound.join(', ')}. These will be skipped.`);
-    }
-
-    if (dependencies.length === 0 && ids.length > 0) {
-        vscode.window.showErrorMessage("None of the entered dependencies could be mapped to known configurations.");
+    // Handle cancellation or no selection
+    if (!selectedItems || selectedItems.length === 0) {
+        vscode.window.showInformationMessage("No dependencies selected.");
         return;
     }
 
+    // Map selected items back to DependencyRequirement objects
+    // Use the ID (label) to look up the full definition, clearing the version requirement
+    const dependencies: DependencyRequirement[] = selectedItems.map(item => {
+        const fullDef = ALL_DEPENDENCIES[item.label]; // Look up by ID (label)
+        // Return a copy, clearing requiredVersion for custom adds
+        return { ...(fullDef || {}), id: item.label, name: item.description || item.label, requiredVersion: undefined };
+    }).filter(dep => dep.name); // Filter out any potential mismatches (shouldn't happen with QuickPick)
+
+
+    // --- (The rest of the logic for merging/overwriting and saving remains the same) ---
     try {
-        const filePath = path.join(folder.uri.fsPath, DEVSETUP_FILENAME); // FIX: Use constant
-        let existingDeps: DependencyRequirement[] = [];
-        let fileExisted = false;
+        const filePath = path.join(folder.uri.fsPath, DEVSETUP_FILENAME); //
+        let existingDeps: DependencyRequirement[] = []; //
+        let fileExisted = false; //
 
-        if (fs.existsSync(filePath)) {
-            fileExisted = true;
-            try {
-                const content = fs.readFileSync(filePath, 'utf8');
-                const parsed = JSON.parse(content);
-                if (Array.isArray(parsed)) {
-                    existingDeps = parsed;
-                } else {
-                    vscode.window.showWarningMessage(`${DEVSETUP_FILENAME} exists but is not a valid array. Overwriting with new selection.`); // FIX: Use constant
+        if (fs.existsSync(filePath)) { //
+            fileExisted = true; //
+            try { //
+                const content = fs.readFileSync(filePath, 'utf8'); //
+                const parsed = JSON.parse(content); //
+                if (Array.isArray(parsed)) { //
+                    existingDeps = parsed; //
+                } else { //
+                    vscode.window.showWarningMessage(`${DEVSETUP_FILENAME} exists but is not a valid array. Overwriting with new selection.`); //
                 }
-            } catch (readError: any) {
-                vscode.window.showWarningMessage(`Could not read existing ${DEVSETUP_FILENAME}: ${readError.message}. Overwriting.`); // FIX: Use constant
+            } catch (readError: any) { //
+                vscode.window.showWarningMessage(`Could not read existing ${DEVSETUP_FILENAME}: ${readError.message}. Overwriting.`); //
             }
         }
 
-        let finalDeps: DependencyRequirement[] = [];
-        if (fileExisted && existingDeps.length > 0) {
-             const mergeOrOverwrite = await vscode.window.showQuickPick(
-                 ['Merge with existing', 'Overwrite existing'],
-                 { placeHolder: `How should the new dependencies be added to ${DEVSETUP_FILENAME}?`, title: 'Update Mode'} // FIX: Use constant
+        let finalDeps: DependencyRequirement[] = []; //
+        if (fileExisted && existingDeps.length > 0) { //
+             const mergeOrOverwrite = await vscode.window.showQuickPick( //
+                 ['Merge with existing', 'Overwrite existing'], //
+                 { placeHolder: `How should the selected dependencies be added to ${DEVSETUP_FILENAME}?`, title: 'Update Mode'} //
              );
 
-             if (!mergeOrOverwrite) { return; }
+             if (!mergeOrOverwrite) { return; } //
 
-             if (mergeOrOverwrite === 'Merge with existing') {
-                 finalDeps = [...existingDeps];
-                 const existingIds = new Set(existingDeps.map(d => d.id));
-                 for (const newDep of dependencies) {
-                     if (!existingIds.has(newDep.id)) {
-                         finalDeps.push(newDep);
-                     } else {
-                         orchestrator.log(`[UI] Dependency '${newDep.id}' already exists, skipping merge.`);
+             if (mergeOrOverwrite === 'Merge with existing') { //
+                 finalDeps = [...existingDeps]; //
+                 const existingIds = new Set(existingDeps.map(d => d.id)); //
+                 for (const newDep of dependencies) { //
+                     if (!existingIds.has(newDep.id)) { //
+                         finalDeps.push(newDep); //
+                     } else { //
+                         orchestrator.log(`[UI] Dependency '${newDep.id}' already exists, skipping merge.`); //
                      }
                  }
-             } else { // Overwrite
-                 finalDeps = dependencies;
+             } else { // Overwrite //
+                 finalDeps = dependencies; //
              }
-        } else {
-            finalDeps = dependencies;
+        } else { //
+            finalDeps = dependencies; //
         }
 
-        fs.writeFileSync(filePath, JSON.stringify(finalDeps, null, 2), 'utf8');
-        orchestrator.log(`[UI] Updated ${DEVSETUP_FILENAME} with custom dependencies.`); // FIX: Use constant
+        fs.writeFileSync(filePath, JSON.stringify(finalDeps, null, 2), 'utf8'); //
+        orchestrator.log(`[UI] Updated ${DEVSETUP_FILENAME} with selected custom dependencies.`); //
 
-        await runFromExistingFileCommand(orchestrator, folder);
+        // Trigger the run from the newly updated/created file
+        await runFromExistingFileCommand(orchestrator, folder); //
 
-    } catch (error: any) {
-        orchestrator.log(`[UI] Error writing custom dependencies to ${DEVSETUP_FILENAME}: ${error.message}`); // FIX: Use constant
-        vscode.window.showErrorMessage(`Error saving dependencies to ${DEVSETUP_FILENAME}: ${error.message}`); // FIX: Use constant
+    } catch (error: any) { //
+        orchestrator.log(`[UI] Error writing custom dependencies to ${DEVSETUP_FILENAME}: ${error.message}`); //
+        vscode.window.showErrorMessage(`Error saving dependencies to ${DEVSETUP_FILENAME}: ${error.message}`); //
     }
 }

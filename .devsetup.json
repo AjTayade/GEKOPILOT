@@ -1,20 +1,33 @@
 [
   {
-    "id": "node",
-    "name": "Node.js",
-    "cliName": "node",
-    "requiredVersion": ">=18.0.0"
-  },
-  {
-    "id": "npm",
-    "name": "NPM",
-    "cliName": "npm",
-    "requiredVersion": ">=8.0.0"
-  },
-  {
     "id": "git",
     "name": "Git",
     "cliName": "git",
+    "versionFlag": "--version",
     "requiredVersion": ">=2.0.0"
+  },
+  {
+    "id": "docker",
+    "name": "Docker Engine/Desktop",
+    "cliName": "docker",
+    "versionFlag": "--version"
+  },
+  {
+    "id": "kubernetes_cli",
+    "name": "Kubernetes CLI (kubectl)",
+    "cliName": "kubectl",
+    "versionFlag": "version --client"
+  },
+  {
+    "id": "terraform",
+    "name": "Terraform",
+    "cliName": "terraform",
+    "versionFlag": "--version"
+  },
+  {
+    "id": "jq",
+    "name": "jq (JSON Processor)",
+    "cliName": "jq",
+    "versionFlag": "--version"
   }
 ]
